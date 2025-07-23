@@ -6,9 +6,9 @@ public class ExistingCamerasManager : MonoBehaviour
     public Transform carTarget;
 
     [Header("--- CÁMARAS EXISTENTES ---")]
-    public Camera mainCamera;       
-    public Camera leftMirrorCamera;  
-    public Camera rightMirrorCamera; 
+    public Camera mainCamera;
+    public Camera leftMirrorCamera;
+    public Camera rightMirrorCamera;
 
     [Header("--- CONFIGURACIÓN CÁMARA PRINCIPAL ---")]
     public float distance = 7.0f;
@@ -18,20 +18,21 @@ public class ExistingCamerasManager : MonoBehaviour
     public float rotationDamping = 4.0f;
 
     [Header("--- CONFIGURACIÓN RETROVISORES ---")]
-    [Tooltip("Posición del retrovisor izquierdo relativa al carro (X=izq/der, Y=arriba/abajo, Z=adelante/atrás)")]
     public Vector3 leftMirrorOffset = new Vector3(-0.8f, 1.2f, 0.3f);
-    [Tooltip("Posición del retrovisor derecho relativa al carro (X=izq/der, Y=arriba/abajo, Z=adelante/atrás)")]
     public Vector3 rightMirrorOffset = new Vector3(0.8f, 1.2f, 0.3f);
+
+    [Header("--- CONFIGURACIÓN DETECCIÓN DE CONOS ---")]
+    public float conesDetectionDistance = 5.0f;
+    public Transform[] coneTransforms;
 
     [Header("--- CONTROLES ---")]
     public KeyCode switchCameraKey = KeyCode.C;
     public KeyCode toggleMirrorsKey = KeyCode.M;
 
     [Header("--- DEBUG ---")]
-    public bool showGizmos = true;
+    public bool showGizmos = false;
     public bool showDebugInfo = false;
 
-    // Estado del sistema
     private enum CameraMode { ThirdPerson, LeftMirror, RightMirror }
     private CameraMode currentMode = CameraMode.ThirdPerson;
     private bool mirrorsEnabled = true;
@@ -61,12 +62,17 @@ public class ExistingCamerasManager : MonoBehaviour
 
         if (leftMirrorCamera == null)
         {
-            Debug.LogWarning("Left Mirror Camera no asignada - el retrovisor izquierdo no funcionará");
+            Debug.LogWarning("Left Mirror Camera no asignada");
         }
 
         if (rightMirrorCamera == null)
         {
-            Debug.LogWarning("Right Mirror Camera no asignada - el retrovisor derecho no funcionará");
+            Debug.LogWarning("Right Mirror Camera no asignada");
+        }
+
+        if (coneTransforms == null || coneTransforms.Length == 0)
+        {
+            Debug.LogWarning("No hay conos asignados - La detección de conos no funcionará");
         }
 
         if (!hasErrors)
@@ -77,7 +83,6 @@ public class ExistingCamerasManager : MonoBehaviour
 
     void ConfigureCameras()
     {
-        // Configurar profundidades de renderizado
         if (mainCamera != null) mainCamera.depth = 0;
         if (leftMirrorCamera != null) leftMirrorCamera.depth = -2;
         if (rightMirrorCamera != null) rightMirrorCamera.depth = -1;
@@ -87,13 +92,10 @@ public class ExistingCamerasManager : MonoBehaviour
     {
         if (carTarget == null) return;
 
-        // Actualizar posiciones de todas las cámaras
         UpdateCameras();
-
-        // Manejar controles
+        CheckConesProximity();
         HandleInput();
 
-        // Debug info
         if (showDebugInfo)
         {
             ShowDebugInfo();
@@ -102,10 +104,8 @@ public class ExistingCamerasManager : MonoBehaviour
 
     void UpdateCameras()
     {
-        // Actualizar cámara principal (tercera persona)
         UpdateThirdPersonCamera();
 
-        // Actualizar retrovisores si están habilitados
         if (mirrorsEnabled)
         {
             UpdateMirrorCamera(leftMirrorCamera, leftMirrorOffset, "Izquierdo");
@@ -117,11 +117,9 @@ public class ExistingCamerasManager : MonoBehaviour
     {
         if (mainCamera == null) return;
 
-        // Posición deseada (detrás del carro)
         Vector3 desiredPosition = carTarget.position - (carTarget.forward * distance) + (Vector3.up * height);
         mainCamera.transform.position = Vector3.Lerp(mainCamera.transform.position, desiredPosition, positionDamping * Time.deltaTime);
 
-        // Rotación para mirar al carro
         Vector3 lookAtTarget = carTarget.position + (Vector3.up * targetHeightOffset);
         Quaternion desiredRotation = Quaternion.LookRotation(lookAtTarget - mainCamera.transform.position, carTarget.up);
         mainCamera.transform.rotation = Quaternion.Slerp(mainCamera.transform.rotation, desiredRotation, rotationDamping * Time.deltaTime);
@@ -131,29 +129,42 @@ public class ExistingCamerasManager : MonoBehaviour
     {
         if (mirrorCam == null) return;
 
-        // Posición relativa al carro
         Vector3 worldPosition = carTarget.TransformPoint(offset);
         mirrorCam.transform.position = worldPosition;
 
-        // Rotación para mirar hacia atrás
         Vector3 lookDirection = carTarget.TransformDirection(Vector3.back);
         mirrorCam.transform.rotation = Quaternion.LookRotation(lookDirection, carTarget.up);
+    }
 
-        if (showDebugInfo)
+
+
+    void CheckConesProximity()
+    {
+        if (coneTransforms == null || coneTransforms.Length == 0) return;
+
+        foreach (Transform cone in coneTransforms)
         {
-            Debug.Log($"Retrovisor {mirrorName}: Pos={worldPosition}, Offset={offset}");
+            if (cone != null)
+            {
+                float distance = Vector3.Distance(carTarget.position, cone.position);
+                
+                if (distance <= conesDetectionDistance)
+                {
+                    Debug.LogWarning($"⚠️ CONTACTO CON CONO DETECTADO - Esto ameritaría tu descalificación! Cono: {cone.name} - Distancia: {distance:F2}m");
+                }
+            }
         }
     }
 
+
+
     void HandleInput()
     {
-        // Cambiar entre cámaras
         if (Input.GetKeyDown(switchCameraKey))
         {
             SwitchCamera();
         }
 
-        // Toggle retrovisores
         if (Input.GetKeyDown(toggleMirrorsKey))
         {
             ToggleMirrors();
@@ -162,26 +173,23 @@ public class ExistingCamerasManager : MonoBehaviour
 
     void SwitchCamera()
     {
-        // Cambiar al siguiente modo
         currentMode = (CameraMode)(((int)currentMode + 1) % 3);
         SetActiveCamera(currentMode);
-
         Debug.Log($"Cámara cambiada a: {currentMode}");
     }
 
     void SetActiveCamera(CameraMode mode)
     {
-        // Desactivar todas las cámaras principales
+        // Desactivar todas
         if (mainCamera != null) mainCamera.enabled = false;
         if (leftMirrorCamera != null) leftMirrorCamera.enabled = false;
         if (rightMirrorCamera != null) rightMirrorCamera.enabled = false;
 
-        // Activar la cámara seleccionada
+        // Activar según modo
         switch (mode)
         {
             case CameraMode.ThirdPerson:
                 if (mainCamera != null) mainCamera.enabled = true;
-                // Mantener retrovisores activos si están habilitados
                 if (mirrorsEnabled)
                 {
                     if (leftMirrorCamera != null) leftMirrorCamera.enabled = true;
@@ -195,13 +203,14 @@ public class ExistingCamerasManager : MonoBehaviour
                 if (rightMirrorCamera != null) rightMirrorCamera.enabled = true;
                 break;
         }
+
+        Debug.Log($"Modo de cámara establecido a: {mode}");
     }
 
     void ToggleMirrors()
     {
         mirrorsEnabled = !mirrorsEnabled;
 
-        // Solo afectar retrovisores cuando estamos en modo tercera persona
         if (currentMode == CameraMode.ThirdPerson)
         {
             if (leftMirrorCamera != null) leftMirrorCamera.enabled = mirrorsEnabled;
@@ -213,46 +222,114 @@ public class ExistingCamerasManager : MonoBehaviour
 
     void ShowDebugInfo()
     {
-        if (carTarget != null)
+        if (carTarget != null && coneTransforms != null && coneTransforms.Length > 0)
         {
-            Vector3 leftPos = carTarget.TransformPoint(leftMirrorOffset);
-            Vector3 rightPos = carTarget.TransformPoint(rightMirrorOffset);
-
-            Debug.Log($"Car Pos: {carTarget.position} | Left Mirror: {leftPos} | Right Mirror: {rightPos}");
+            float minDistance = float.MaxValue;
+            Transform closestCone = null;
+            
+            foreach (Transform cone in coneTransforms)
+            {
+                if (cone != null)
+                {
+                    float distance = Vector3.Distance(carTarget.position, cone.position);
+                    if (distance < minDistance)
+                    {
+                        minDistance = distance;
+                        closestCone = cone;
+                    }
+                }
+            }
+            
+            string closestConeName = closestCone != null ? closestCone.name : "Ninguno";
+            Debug.Log($"Distancia mínima a conos: {minDistance:F2}m | Cono más cercano: {closestConeName}");
         }
     }
 
     void OnDrawGizmos()
     {
-        if (!showGizmos || carTarget == null) return;
+        if (!showGizmos) return;
 
-        // Visualizar posición de cámara principal
-        Gizmos.color = Color.green;
-        Vector3 mainCamPos = carTarget.position - (carTarget.forward * distance) + (Vector3.up * height);
-        Gizmos.DrawWireCube(mainCamPos, Vector3.one * 0.5f);
-        Gizmos.DrawLine(carTarget.position, mainCamPos);
+        if (carTarget != null)
+        {
+            Gizmos.color = Color.green;
+            Vector3 mainCamPos = carTarget.position - (carTarget.forward * distance) + (Vector3.up * height);
+            Gizmos.DrawWireCube(mainCamPos, Vector3.one * 0.5f);
+            Gizmos.DrawLine(carTarget.position, mainCamPos);
 
-        // Visualizar posiciones de retrovisores
-        Gizmos.color = Color.red;
-        Vector3 leftPos = carTarget.TransformPoint(leftMirrorOffset);
-        Gizmos.DrawWireSphere(leftPos, 0.3f);
-        Gizmos.DrawLine(carTarget.position, leftPos);
+            Gizmos.color = Color.red;
+            Vector3 leftPos = carTarget.TransformPoint(leftMirrorOffset);
+            Gizmos.DrawWireSphere(leftPos, 0.3f);
 
-        Gizmos.color = Color.blue;
-        Vector3 rightPos = carTarget.TransformPoint(rightMirrorOffset);
-        Gizmos.DrawWireSphere(rightPos, 0.3f);
-        Gizmos.DrawLine(carTarget.position, rightPos);
+            Gizmos.color = Color.blue;
+            Vector3 rightPos = carTarget.TransformPoint(rightMirrorOffset);
+            Gizmos.DrawWireSphere(rightPos, 0.3f);
+        }
 
-        // Mostrar dirección de vista de retrovisores
-        Gizmos.color = Color.yellow;
-        Vector3 lookBack = carTarget.TransformDirection(Vector3.back);
-        Gizmos.DrawRay(leftPos, lookBack * 3f);
-        Gizmos.DrawRay(rightPos, lookBack * 3f);
+        // Visualizar área de detección de conos
+        if (coneTransforms != null && carTarget != null)
+        {
+            for (int i = 0; i < coneTransforms.Length; i++)
+            {
+                Transform cone = coneTransforms[i];
+                if (cone != null)
+                {
+                    float distance = Vector3.Distance(carTarget.position, cone.position);
+                    
+                    // Color según proximidad
+                    if (distance <= conesDetectionDistance)
+                    {
+                        Gizmos.color = Color.red; // Muy cerca - descalificación
+                        Gizmos.DrawLine(carTarget.position, cone.position);
+                    }
+                    else
+                    {
+                        Gizmos.color = Color.yellow; // Distancia segura
+                    }
+                    
+                    Gizmos.DrawWireSphere(cone.position, conesDetectionDistance);
+                }
+            }
+        }
 
-        // Etiquetas de texto (solo en Scene view)
-        #if UNITY_EDITOR
-        UnityEditor.Handles.Label(leftPos, "Retrovisor IZQ");
-        UnityEditor.Handles.Label(rightPos, "Retrovisor DER");
-        #endif
+#if UNITY_EDITOR
+        if (carTarget != null)
+        {
+            Vector3 leftPos = carTarget.TransformPoint(leftMirrorOffset);
+            Vector3 rightPos = carTarget.TransformPoint(rightMirrorOffset);
+            UnityEditor.Handles.Label(leftPos, "Retrovisor IZQ");
+            UnityEditor.Handles.Label(rightPos, "Retrovisor DER");
+        }
+        
+        if (coneTransforms != null && carTarget != null)
+        {
+            float minDistance = float.MaxValue;
+            Transform closestCone = null;
+            
+            foreach (Transform cone in coneTransforms)
+            {
+                if (cone != null)
+                {
+                    float distance = Vector3.Distance(carTarget.position, cone.position);
+                    if (distance < minDistance)
+                    {
+                        minDistance = distance;
+                        closestCone = cone;
+                    }
+                }
+            }
+            
+            for (int i = 0; i < coneTransforms.Length; i++)
+            {
+                if (coneTransforms[i] != null)
+                {
+                    float distance = Vector3.Distance(carTarget.position, coneTransforms[i].position);
+                    string status = distance <= conesDetectionDistance ? " (¡DESCALIFICACIÓN!)" : "";
+                    string label = coneTransforms[i] == closestCone ? 
+                        $"Cono {i+1} (MÁS CERCANO){status}" : $"Cono {i+1}{status}";
+                    UnityEditor.Handles.Label(coneTransforms[i].position, label);
+                }
+            }
+        }
+#endif
     }
 }

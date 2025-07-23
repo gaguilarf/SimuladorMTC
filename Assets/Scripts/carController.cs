@@ -15,6 +15,8 @@ public class FixedCarController : MonoBehaviour
 
     [Header("Configuración del Rigidbody")]
     public float centerOfMassOffset = -0.5f;
+    public float downForce = 100f;
+    public float groundCheckDistance = 1.5f;
 
     [Header("Debug")]
     public bool showDebugInfo = false;
@@ -24,6 +26,7 @@ public class FixedCarController : MonoBehaviour
     private float horizontalInput;
     private bool isBraking;
     private float currentSteeringAngle = 0f;
+    private bool isGrounded = false;
 
     void Awake()
     {
@@ -38,6 +41,15 @@ public class FixedCarController : MonoBehaviour
         rb.centerOfMass = new Vector3(0, centerOfMassOffset, 0);
         rb.linearDamping = 0.3f;
         rb.angularDamping = 3f;
+        
+        // Asegurar que la gravedad esté activada
+        rb.useGravity = true;
+        
+        // Aumentar la masa para que sea más estable
+        if (rb.mass < 5f)
+        {
+            rb.mass = 10f;
+        }
     }
 
     void Update()
@@ -66,6 +78,8 @@ public class FixedCarController : MonoBehaviour
     {
         if (rb == null) return;
 
+        CheckGrounded();
+        ApplyDownForce();
         ApplySteering();
         ApplyDriveForce();
         ApplyBrakingAndDrag();
@@ -76,7 +90,8 @@ public class FixedCarController : MonoBehaviour
     {
         float currentSpeed = rb.linearVelocity.magnitude;
 
-        if (Mathf.Abs(horizontalInput) > 0.05f && currentSpeed > 0.1f)
+        // Solo aplicar dirección si está en el suelo
+        if (Mathf.Abs(horizontalInput) > 0.05f && currentSpeed > 0.1f && isGrounded)
         {
             float targetSteeringAngle = horizontalInput * turnStrength;
             currentSteeringAngle = Mathf.Lerp(currentSteeringAngle, targetSteeringAngle,
@@ -106,7 +121,8 @@ public class FixedCarController : MonoBehaviour
 
     void ApplyDriveForce()
     {
-        if (Mathf.Abs(verticalInput) > 0.05f)
+        // Solo aplicar fuerza de movimiento si está en el suelo
+        if (Mathf.Abs(verticalInput) > 0.05f && isGrounded)
         {
             Vector3 driveForce = transform.forward * verticalInput * accelerationForce;
 
@@ -138,6 +154,27 @@ public class FixedCarController : MonoBehaviour
         }
     }
 
+    void CheckGrounded()
+    {
+        // Raycast hacia abajo para verificar si está en el suelo
+        RaycastHit hit;
+        isGrounded = Physics.Raycast(transform.position, Vector3.down, out hit, groundCheckDistance);
+        
+        if (showDebugInfo && !isGrounded)
+        {
+            Debug.Log("¡Carro en el aire!");
+        }
+    }
+
+    void ApplyDownForce()
+    {
+        // Aplicar fuerza hacia abajo para mantener el carro pegado al suelo
+        if (isGrounded)
+        {
+            rb.AddForce(Vector3.down * downForce, ForceMode.Force);
+        }
+    }
+
     void LimitSpeed()
     {
         float currentMaxSpeed;
@@ -161,7 +198,7 @@ public class FixedCarController : MonoBehaviour
     {
         if (rb != null)
         {
-            Debug.Log($"Speed: {rb.linearVelocity.magnitude:F1} | Angular Vel: {rb.angularVelocity.y:F2} | Steering Angle: {currentSteeringAngle:F1}");
+            // Debug.Log($"Speed: {rb.linearVelocity.magnitude:F1} | Angular Vel: {rb.angularVelocity.y:F2} | Steering Angle: {currentSteeringAngle:F1}");
         }
     }
 
